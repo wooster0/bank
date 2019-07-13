@@ -7,6 +7,7 @@
 #ifdef WIN32
   #include <conio.h>
   #include <windows.h>
+  #include <io.h>
 
   #define BACKSPACE 8
   #define NEWLINE 13
@@ -14,6 +15,8 @@
   void sleep(int seconds) {
     Sleep(seconds * 1000);
   }
+
+  HANDLE console_handle;
 #else
   #include <unistd.h>
   #include <termios.h>
@@ -38,14 +41,12 @@
 
 void move_cursor(int x, int y) {
   #ifdef WIN32
-    HANDLE console_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-
-    PCONSOLE_SCREEN_BUFFER_INFO console_info;
-    GetConsoleScreenBufferInfo(console_handle, console_info);
+    CONSOLE_SCREEN_BUFFER_INFO console_info;
+    GetConsoleScreenBufferInfo(console_handle, &console_info);
 
     COORD position;
-    position.X = console_info->dwCursorPosition.X + x;
-    position.Y = console_info->dwCursorPosition.Y + y;
+    position.X = console_info.dwCursorPosition.X + x;
+    position.Y = console_info.dwCursorPosition.Y + y;
 
     SetConsoleCursorPosition(console_handle, position);
   #else
@@ -69,7 +70,7 @@ void move_cursor(int x, int y) {
       printf("\e[%i%c", abs(y), y_direction);
     } else if(y == 0) {
       printf("\e[%i%c", abs(x), x_direction);
-    } else {    
+    } else {
       printf("\e[%i%c\e[%i%c", abs(x), x_direction, abs(y), y_direction);
     }
   #endif
@@ -111,6 +112,8 @@ int get_password(char* password) {
 
 void receive_bank_account_info(char* name_or_id, char* password, int id) {
   while(1) {
+    retry:
+
     fgets(name_or_id, 23, stdin);
 
     if(id) {
@@ -118,7 +121,7 @@ void receive_bank_account_info(char* name_or_id, char* password, int id) {
         if(!isdigit(name_or_id[index])) {
           printf("Invalid ID entered.\nID:\nPassword:");
           move_cursor(-5, -1);
-          break;
+          goto retry;
         }
       }
       if(name_or_id[1] == 0) {
@@ -165,7 +168,7 @@ void register_new_account() {
     printf("Please confirm your password: ");
     get_password(confirmation_password);
 
-    if(strcmp(password, confirmation_password) == 0) {
+    if(strcmp(password, confirmation_password) != 0) {
       puts("Password does not match.");
     } else {
       break;
@@ -177,10 +180,14 @@ void register_new_account() {
   // The length of the maximum number 340282366920938463463374607431768211455
   char line[39];
 
-  // Skip to the last line
-  while(fgets(line, 39, file)) { }
+  int character;
+  int lines = 0;
 
-  int id = strtoll(line, NULL, 10) + 1;
+  while(EOF != (character = getc(file))) {
+    if(character == '\n') { ++lines; }
+  }
+
+  int id = lines / 4 + 1;
 
   if(id == pow(2, 128) - 1) {
     puts("Error registering account. Too many accounts registered.\n");
@@ -198,6 +205,24 @@ void register_new_account() {
 }
 
 int sign_in() {
+  #ifdef WIN32
+    if(_access_s("accounts", 0)) {
+  #else
+    if(access("accounts", F_OK)) {
+  #endif
+    puts("No accounts registered.\n");
+    return 0;
+  }
+
+  #ifdef WIN32
+    if(_access_s("accounts", 4)) {
+  #else
+    if(access("accounts", R_OK)) {
+  #endif
+    puts("Account database can not be read.");
+    return 0;
+  }
+
   char id[23];
   char password[23];
 
@@ -211,7 +236,7 @@ int sign_in() {
 
   char line[39];
   int index = 0;
-  int account_found = 0;
+  int id_found = 0;
 
   while(fgets(line, 39, file)) {
     // Remove the trailing newline
@@ -219,9 +244,9 @@ int sign_in() {
 
     if(index == 0) {
       if(strcmp(line, id) == 0) {
-        account_found = 1;
+        id_found = 1;
       }
-    } else if(account_found) {
+    } else if(id_found) {
       if(strcmp(password, line) == 0) {
         puts("Logged in.\n");
         return 1;
@@ -229,13 +254,16 @@ int sign_in() {
         puts("Incorrect password.\n");
         return 0;
       }
-    } else if(index == 4) {
-      index = 0;
     }
-    ++index;
+
+    if(index == 3) {
+      index = 0;
+    } else {
+      ++index;
+    }
   }
 
-  puts("ID not registered.");
+  puts("ID not registered.\n");
   return 0;
 }
 
@@ -247,6 +275,12 @@ void print_introduction() {
 }
 
 int main() {
+  #ifdef WIN32
+    console_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+  #endif
+
+  start:
+
   print_introduction();
 
   while(1) {
@@ -260,6 +294,24 @@ int main() {
       print_introduction();
     } else if(option == 51) {
       return 0;
+    }
+  }
+
+  puts("Use the number keys to select an option.\n" \
+       "1. Withdraw money\n" \
+       "2. Deposit money\n" \
+       "3. Account management\n" \
+       "4. Log out");
+
+  while(1) {
+    int option = getch();
+
+    if(option == 49) {
+    } else if(option == 50) {
+    } else if(option == 51) {
+    } else if(option == 52) {
+      putchar('\n');
+      goto start;
     }
   }
 }

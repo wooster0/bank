@@ -1,0 +1,3 @@
+# On Linux run "./build", on Windows run "cmd < build"
+
+gcc bank.c -o bank -O2 -flto
