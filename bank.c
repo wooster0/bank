@@ -4,6 +4,10 @@
 #include <math.h>
 #include <ctype.h>
 
+// To do list:
+// - Maybe don't store IDs in the accounts file. Every 3 lines, add 1 to id variable.
+// - Currently fgets overloading (giving too much input) is not handled.
+
 #ifdef WIN32
   #include <conio.h>
   #include <windows.h>
@@ -38,6 +42,11 @@
     return key;
   }
 #endif
+
+char account_id[23];
+char account_password[23];
+char account_name[20];
+char account_balance[20];
 
 void move_cursor(int x, int y) {
   #ifdef WIN32
@@ -175,15 +184,12 @@ void register_new_account() {
     }
   }
 
-  FILE* file = fopen("accounts", "a+");
-
-  // The length of the maximum number 340282366920938463463374607431768211455
-  char line[39];
+  FILE* file = fopen("accounts", "a+b");
 
   int character;
   int lines = 0;
 
-  while(EOF != (character = getc(file))) {
+  while((character = getc(file)) != EOF) {
     if(character == '\n') { ++lines; }
   }
 
@@ -210,7 +216,7 @@ int sign_in() {
   #else
     if(access("accounts", F_OK)) {
   #endif
-    puts("No accounts registered.\n");
+    puts("\nNo accounts registered.\n");
     return 0;
   }
 
@@ -219,37 +225,46 @@ int sign_in() {
   #else
     if(access("accounts", R_OK)) {
   #endif
-    puts("Account database can not be read.");
+    puts("\nAccount database can not be read.");
     return 0;
   }
-
-  char id[23];
-  char password[23];
 
   puts("\nID:\nPassword:");
 
   move_cursor(4, -2);
 
-  receive_bank_account_info(id, password, 1);
+  receive_bank_account_info(account_id, account_password, 1);
 
   FILE* file = fopen("accounts", "r");
 
+  // The length of the maximum number 340282366920938463463374607431768211455 that could be in the file
   char line[39];
   int index = 0;
   int id_found = 0;
+  int logged_in = 0;
 
   while(fgets(line, 39, file)) {
     // Remove the trailing newline
     line[strlen(line) - 1] = 0;
 
+    if(logged_in) {
+      if(index == 2) {
+        strcpy(account_name, line);
+      } else if(index == 3) {
+        strcpy(account_balance, line);
+        puts("Logged in.\n");
+        return 1;
+      }
+    }
+
     if(index == 0) {
-      if(strcmp(line, id) == 0) {
+      if(strcmp(line, account_id) == 0) {
         id_found = 1;
       }
     } else if(id_found) {
-      if(strcmp(password, line) == 0) {
-        puts("Logged in.\n");
-        return 1;
+      if(strcmp(line, account_password) == 0) {
+        logged_in = 1;
+        id_found = 0;
       } else {
         puts("Incorrect password.\n");
         return 0;
@@ -272,6 +287,163 @@ void print_introduction() {
        "1. Sign in\n" \
        "2. Register new account\n" \
        "3. Exit");
+}
+
+void show_second_menu() {
+  puts("Use the number keys to select an option.\n" \
+       "1. Withdraw money\n" \
+       "2. Deposit money\n" \
+       "3. Account information\n" \
+       "4. Log out");
+}
+
+void make_transaction(int withdraw) {
+  FILE* file = fopen("accounts", "r");
+
+  // Find out the file size by seeking to the end
+  fseek(file, 0, SEEK_END);
+  long file_size = ftell(file);
+  rewind(file);
+
+  char* buffer = malloc(file_size);
+
+  if(buffer == NULL) {
+    puts("\nOut of memory.\n");
+    return;
+  }
+
+  size_t bytes_read = fread(buffer, 1, file_size, file);
+
+  if(bytes_read != file_size) {
+    puts("\nError reading file.\n");
+    free(buffer);
+    return;
+  }
+
+  fclose(file);
+
+  int id_index = 0;
+  int lines = 0;
+  int id_found = 0;
+  char character;
+
+  // Advance index to the balance position in the file
+  int index = 0;
+  for(;index < file_size; ++index) {
+    if((character = buffer[index]) == '\n') {
+      ++lines;
+    }
+
+    if(id_found && lines == 2) {
+      while(buffer[index] != '\n') { ++index; }
+      ++index;
+      break;
+    }
+
+    if(lines == 0 && !id_found) {
+      id_found = 1;
+      while(1) {
+        if(account_id[id_index] != character) {
+          id_found = 0;
+          break;
+        }
+        ++id_index;
+        ++index;
+        character = buffer[index];
+        if(character == '\n') { break; }
+      }
+      id_index = 0;
+    } else if(lines == 3) {
+      lines = 0;
+    }
+  }
+
+  while(1) {
+    if(withdraw) {
+      printf("\nHow much would you like to withdraw from %s? ", account_balance);
+    } else {
+      printf("\nHow much would you like to deposit? ", account_balance);
+    }
+
+    char amount_string[5];
+    fgets(amount_string, 5, stdin);
+
+    if(amount_string[1] == 0) {
+      puts("No amount entered.");
+      continue;
+    }
+
+    // Skip the trailing newline
+    int input_length = strlen(amount_string) - 1;
+
+    int invalid_amount_entered = 0;
+    for(int index = 0; index < input_length; ++index) {
+      if(!isdigit(amount_string[index])) {
+        puts("Invalid amount entered.");
+        invalid_amount_entered = 1;
+        break;
+      }
+    }
+    if(invalid_amount_entered) { continue; }
+
+    if(input_length > 3) {
+      if(withdraw) {
+        puts("Cannot withdraw more than 500 at once.");
+      } else {
+        puts("Cannot deposit more than 500 at once.");
+      }
+      continue;
+    }
+
+    int amount = strtol(amount_string, NULL, 10);
+
+    if(amount > 500) {
+      if(withdraw) {
+        puts("Cannot withdraw more than 500 at once.");
+      } else {
+        puts("Cannot deposit more than 500 at once.");
+      }
+      continue;
+    }
+
+    int new_balance;
+    if(withdraw) {
+      new_balance = strtol(account_balance, NULL, 10) - amount;
+    } else {
+      new_balance = strtol(account_balance, NULL, 10) + amount;
+    }
+
+    if(withdraw && new_balance < 0) {
+      puts("Your account has insufficient funds for this transaction.");
+      continue;
+    }
+
+    char new_balance_string[3];
+    sprintf(new_balance_string, "%i", new_balance);
+
+    strcpy(account_balance, new_balance_string);
+
+    // TODO: Give i a better name
+    for(int i = 0; i < strlen(new_balance_string); ++i) {
+      buffer[index] = new_balance_string[i];
+      ++index;
+    }
+
+    FILE* filee = fopen("accounts", "w+b");
+
+    size_t bytes_written = fwrite(buffer, 1, index, filee);
+
+    if(bytes_written != index) {
+      puts("Account database has been updated incorrectly. Deleting database.");
+      remove("accounts");
+    }
+
+    fclose(filee);
+    free(buffer);
+
+    printf("Your new account balance is %s.\n\n", new_balance_string);
+    return;
+  }
 }
 
 int main() {
@@ -297,18 +469,22 @@ int main() {
     }
   }
 
-  puts("Use the number keys to select an option.\n" \
-       "1. Withdraw money\n" \
-       "2. Deposit money\n" \
-       "3. Account management\n" \
-       "4. Log out");
+  show_second_menu();
 
   while(1) {
     int option = getch();
 
     if(option == 49) {
+      make_transaction(1);
+      show_second_menu();
     } else if(option == 50) {
+      make_transaction(0);
+      show_second_menu();
     } else if(option == 51) {
+      printf("\nName: %s\n" \
+             "Balance: %s\n" \
+             "Account ID: %s\n\n", account_name, account_balance, account_id);
+      show_second_menu();
     } else if(option == 52) {
       putchar('\n');
       goto start;
