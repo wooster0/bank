@@ -334,8 +334,6 @@ int sign_in() {
     }
   }
 
-  puts(account_id);
-  puts(account_password);
   puts("ID not registered.\n");
   return 0;
 }
