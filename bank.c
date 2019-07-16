@@ -6,7 +6,56 @@
 
 // To do list:
 // - Maybe don't store IDs in the accounts file. Every 3 lines, add 1 to id variable.
-// - Currently fgets overloading (giving too much input) is not handled.
+
+// This function reads an arbitrarily long string from stdin and returns it.
+//
+// Optionally you can pass the memory address of an integer as the first argument in order to get the length of the string,
+// otherwise it can be NULL. This can avoid a strlen() call.
+char* get_input(int* length) {
+  int character = getc(stdin);
+
+  if(character == '\n' || character == EOF) {
+    if(length != NULL) {
+      *length = 0;
+    }
+
+    return (char[2]){character, 0};
+  }
+
+  int buffer_size = 10;
+  char* buffer = malloc(buffer_size);
+  char* new_buffer;
+  int position = 0;
+
+  if(buffer == NULL) {
+    puts("Could not allocate memory.");
+    exit(1);
+  }
+
+  while(character != EOF && character != '\n') {
+    buffer[position++] = character;
+
+    if(position >= buffer_size) {
+      buffer_size *= 2;
+      new_buffer = realloc(buffer, buffer_size);
+      if(new_buffer == NULL) {
+        return buffer;
+      } else {
+        buffer = new_buffer;
+      }
+    }
+
+    character = getc(stdin);
+  }
+
+  buffer[position] = 0;
+
+  if(length != NULL) {
+    *length = position;
+  }
+
+  return buffer;
+}
 
 #ifdef WIN32
   #include <conio.h>
@@ -43,7 +92,7 @@
   }
 #endif
 
-char account_id[23];
+char* account_id;
 char account_password[23];
 char account_name[20];
 char account_balance[20];
@@ -119,31 +168,34 @@ int get_password(char* password) {
   password[password_index] = 0;
 }
 
-void receive_bank_account_info(char* name_or_id, char* password, int id) {
+char* receive_bank_account_info(char* password, int id) {
+  char* name_or_id;
+  int name_or_id_length;
+
   while(1) {
     retry:
 
-    fgets(name_or_id, 23, stdin);
+    name_or_id = get_input(&name_or_id_length);
 
     if(id) {
-      for(int index = 0; index < strlen(name_or_id)-1; ++index) {
+      for(int index = 0; index < name_or_id_length; ++index) {
         if(!isdigit(name_or_id[index])) {
           printf("Invalid ID entered.\nID:\nPassword:");
           move_cursor(-5, -1);
           goto retry;
         }
       }
-      if(name_or_id[1] == 0) {
+      if(name_or_id_length == 0) {
         printf("No ID entered.\nID:\nPassword:");
         move_cursor(-5, -1);
       } else {
         break;
       }
     } else {
-      if(strlen(name_or_id) > 21) {
+      if(name_or_id_length > 20) {
         printf("Name can not be longer than 20 characters.\nName:\nPassword:");
         move_cursor(-3, -1);
-      } else if(name_or_id[1] == 0) {
+      } else if(name_or_id_length == 0) {
         printf("No name entered.\nName:\nPassword:");
         move_cursor(-3, -1);
       } else {
@@ -152,16 +204,15 @@ void receive_bank_account_info(char* name_or_id, char* password, int id) {
     }
   }
 
-  // Remove the trailing newline
-  name_or_id[strlen(name_or_id) - 1] = 0;
-
   move_cursor(10, 0);
 
   while(get_password(password) == -1) { printf("Password: "); }
+
+  return name_or_id;
 }
 
 void register_new_account() {
-  char name[23];
+  char* name;
   char password[23];
 
   while(1) {
@@ -170,7 +221,7 @@ void register_new_account() {
 
     move_cursor(6, -2);
 
-    receive_bank_account_info(name, password, 0);
+    name = receive_bank_account_info(password, 0);
 
     char confirmation_password[23];
 
@@ -233,9 +284,14 @@ int sign_in() {
 
   move_cursor(4, -2);
 
-  receive_bank_account_info(account_id, account_password, 1);
+  account_id = receive_bank_account_info(account_password, 1);
 
   FILE* file = fopen("accounts", "r");
+
+  if(file == NULL) {
+    puts("\nNo accounts registered.\n");
+    return 0;
+  }
 
   // The length of the maximum number 340282366920938463463374607431768211455 that could be in the file
   char line[39];
@@ -278,6 +334,8 @@ int sign_in() {
     }
   }
 
+  puts(account_id);
+  puts(account_password);
   puts("ID not registered.\n");
   return 0;
 }
@@ -362,22 +420,19 @@ void make_transaction(int withdraw) {
     if(withdraw) {
       printf("\nHow much would you like to withdraw from %s? ", account_balance);
     } else {
-      printf("\nHow much would you like to deposit? ", account_balance);
+      printf("\nHow much would you like to deposit? ");
     }
 
-    char amount_string[5];
-    fgets(amount_string, 5, stdin);
+    int amount_string_length;
+    char* amount_string = get_input(&amount_string_length);
 
-    if(amount_string[1] == 0) {
+    if(amount_string_length == 0) {
       puts("No amount entered.");
       continue;
     }
 
-    // Skip the trailing newline
-    int input_length = strlen(amount_string) - 1;
-
     int invalid_amount_entered = 0;
-    for(int index = 0; index < input_length; ++index) {
+    for(int index = 0; index < amount_string_length; ++index) {
       if(!isdigit(amount_string[index])) {
         puts("Invalid amount entered.");
         invalid_amount_entered = 1;
@@ -386,7 +441,7 @@ void make_transaction(int withdraw) {
     }
     if(invalid_amount_entered) { continue; }
 
-    if(input_length > 3) {
+    if(amount_string_length > 3) {
       if(withdraw) {
         puts("Cannot withdraw more than 500 at once.");
       } else {
